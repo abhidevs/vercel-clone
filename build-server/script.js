@@ -35,12 +35,14 @@ async function init() {
     // Notify completion of build
     p.on("close", async () => {
         console.log("Build completed successfully");
-        const buildFolderPath = path.join(__dirname, "output", "dist");
+        const buildFolder = process.env.BUILD_FOLDER;
+        const buildFolderPath = path.join(__dirname, "output", buildFolder);
         const buildFolderContents = fs.readdirSync(buildFolderPath, {
             recursive: true,
         });
 
-        for (const filepath of buildFolderContents) {
+        for (const file of buildFolderContents) {
+            const filepath = path.join(buildFolderPath, file);
             if (fs.lstatSync(filepath).isDirectory()) {
                 continue;
             }
