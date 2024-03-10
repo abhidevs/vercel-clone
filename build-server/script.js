@@ -33,9 +33,9 @@ async function init() {
     });
 
     // Notify completion of build
-    p.on("close", async () => {
+    p.on("close", async function () {
         console.log("Build completed successfully");
-        const buildFolder = process.env.BUILD_FOLDER;
+        const buildFolder = process.env.BUILD_FOLDER || "build";
         const buildFolderPath = path.join(__dirname, "output", buildFolder);
         const buildFolderContents = fs.readdirSync(buildFolderPath, {
             recursive: true,
@@ -51,14 +51,15 @@ async function init() {
 
             const uploadCommand = new PutObjectCommand({
                 Bucket: process.env.S3_BUCKET_NAME,
-                key: `__builds/${PROJECT_ID}/${filepath}`,
+                Key: `__builds/${PROJECT_ID}/${file}`,
                 Body: fs.createReadStream(filepath),
                 ContentType: mime.lookup(filepath),
             });
 
             await s3Client.send(uploadCommand);
-            console.log("Deployment completed...");
         }
+
+        console.log("Deployment completed...");
     });
 }
 
