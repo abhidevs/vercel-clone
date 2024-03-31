@@ -3,9 +3,12 @@ const randomWordSlugs = require("random-word-slugs");
 const { ECSClient, RunTaskCommand } = require("@aws-sdk/client-ecs");
 const path = require("path");
 require("dotenv").config({ path: path.resolve(__dirname, ".env") });
+const Redis = require("ioredis");
+const { Server } = require("socket.io");
 
 const app = express();
-const PORT = 9000;
+const SERVER_PORT = 9000;
+const SOCKET_PORT = 9002;
 
 const ecsClient = new ECSClient({
     credentials: {
@@ -19,11 +22,27 @@ const buildCommandConfig = {
     TASK: process.env.AWS_BUILD_TASK_ARN,
 };
 
+const REDIS_SERVICE_URI = process.env.REDIS_SERVICE_URI;
+const subscriber = new Redis(REDIS_SERVICE_URI);
+
+const io = new Server({ cors: "*" });
+
+io.listen(SOCKET_PORT, () =>
+    console.log(`Socket server running on ${SOCKET_PORT}`)
+);
+
+io.on("connection", (socket) => {
+    socket.on("subscribe", (channel) => {
+        socket.join(channel);
+        socket.emit("message", `Joined ${channel}`);
+    });
+});
+
 app.use(express.json());
 
 app.post("/projects", async (req, res) => {
-    const { gitUrl, buildFolder } = req.body;
-    const projectSlug = randomWordSlugs.generateSlug();
+    const { gitUrl, buildFolder, slug } = req.body;
+    const projectSlug = slug ? slug : randomWordSlugs.generateSlug();
 
     // Spin the build container
     const buildCommand = new RunTaskCommand({
@@ -75,4 +94,16 @@ app.post("/projects", async (req, res) => {
     });
 });
 
-app.listen(PORT, () => console.log(`Reverse proxy running on ${PORT}`));
+async function initRedisSubscription() {
+    subscriber.psubscribe("logs:*");
+    subscriber.on("pmessage", (pattern, channel, message) => {
+        io.to(channel).emit("message", message);
+    });
+    console.log("Subscribed to build logs");
+}
+
+initRedisSubscription();
+
+app.listen(SERVER_PORT, () =>
+    console.log(`Reverse proxy running on ${SERVER_PORT}`)
+);

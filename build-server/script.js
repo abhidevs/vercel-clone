@@ -4,6 +4,7 @@ const fs = require("fs");
 const { S3Client, PutObjectCommand } = require("@aws-sdk/client-s3");
 const mime = require("mime-types");
 require("dotenv").config({ path: path.resolve(__dirname, ".env") });
+const Redis = require("ioredis");
 
 const s3Client = new S3Client({
     region: process.env.S3_BUCKET_REGION,
@@ -14,9 +15,24 @@ const s3Client = new S3Client({
 });
 
 const PROJECT_ID = process.env.PROJECT_ID;
+const REDIS_SERVICE_URI = process.env.REDIS_SERVICE_URI;
+
+const publisher = new Redis(REDIS_SERVICE_URI);
+
+function publishLog(log, printInConsole = true) {
+    try {
+        publisher.publish(`logs:${PROJECT_ID}`, JSON.stringify({ log }));
+    } catch (error) {
+        console.log(`Error while publishing log: ${error.toString()}`);
+    }
+
+    if (printInConsole) {
+        console.log(log);
+    }
+}
 
 async function init() {
-    console.log("Executing script.js");
+    publishLog("Build initiated...");
 
     // Go to the output directory containing cloned repo content
     // and then install dependencies and build it
@@ -25,22 +41,23 @@ async function init() {
 
     // Display logs
     p.stdout.on("data", (data) => {
-        console.log(data.toString());
+        publishLog(data.toString());
     });
 
     // Display errors
     p.stdout.on("error", (error) => {
-        console.log(`Error: ${error.toString()}`);
+        publishLog(`Error: ${error.toString()}`);
     });
 
     // Notify completion of build
     p.on("close", async function () {
-        console.log("Build completed successfully");
+        publishLog("Build completed successfully");
         const buildFolder = process.env.BUILD_FOLDER || "build";
         const buildFolderPath = path.join(__dirname, "output", buildFolder);
         const buildFolderContents = fs.readdirSync(buildFolderPath, {
             recursive: true,
         });
+        publishLog("Deployment started");
 
         for (const file of buildFolderContents) {
             const filepath = path.join(buildFolderPath, file);
@@ -48,7 +65,7 @@ async function init() {
                 continue;
             }
 
-            console.log(`Uploading: ${filepath} to cloud`);
+            publishLog(`Uploading: ${filepath} to cloud`);
 
             const uploadCommand = new PutObjectCommand({
                 Bucket: process.env.S3_BUCKET_NAME,
@@ -60,7 +77,7 @@ async function init() {
             await s3Client.send(uploadCommand);
         }
 
-        console.log("Deployment completed...");
+        publishLog("Deployment completed...");
     });
 }
 
